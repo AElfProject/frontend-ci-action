@@ -9,6 +9,14 @@ inputs:
   branch-name:
     description: 'Branch to store test results'
     required: true
+  is-monorepo:
+    description: 'Is monorepo'
+    required: false
+    default: false
+  package:
+    description: 'Package name'
+    required: false
+    default: 'utils'
 
 permissions:
   contents: write
@@ -23,12 +31,25 @@ runs:
     - uses: actions/setup-node@v2
       with:
         node-version: 20
-        cache: yarn
 
-    - run: yarn install
+    - name: Install dependencies
+      run: |
+        if [[ "${{ inputs.is-monorepo }}" == "true" ]]; then
+          npm install -g pnpm
+          pnpm install --no-frozen-lockfile
+        else
+          yarn install
+        fi
       shell: bash
 
-    - run: yarn run test
+    - name: Run tests
+      run: |
+        if [[ "${{ inputs.is-monorepo }}" == "true" ]]; then
+          cd packages/${{ inputs.package }}
+          pnpm run test
+        else
+          yarn run test
+        fi
       shell: bash
 
     - name: Install xmlstarlet
@@ -39,13 +60,19 @@ runs:
 
     - name: Extract test counts
       run: |
-        echo "TESTS=$(xmlstarlet sel -t -v "testsuites/@tests" "jest-report.xml")" >> $GITHUB_ENV
-        echo "FAILURES=$(xmlstarlet sel -t -v "testsuites/@failures" "jest-report.xml")" >> $GITHUB_ENV
-        echo "ERRORS=$(xmlstarlet sel -t -v "testsuites/@errors" "jest-report.xml")" >> $GITHUB_ENV
+        if [[ "${{ inputs.is-monorepo }}" == "true" ]]; then
+          echo "TESTS=$(xmlstarlet sel -t -v "testsuites/@tests" "packages/${{ inputs.package }}/jest-report.xml")" >> $GITHUB_ENV
+          echo "FAILURES=$(xmlstarlet sel -t -v "testsuites/@failures" "packages/${{ inputs.package }}/jest-report.xml")" >> $GITHUB_ENV
+          echo "ERRORS=$(xmlstarlet sel -t -v "testsuites/@errors" "packages/${{ inputs.package }}/jest-report.xml")" >> $GITHUB_ENV
+        else
+          echo "TESTS=$(xmlstarlet sel -t -v "testsuites/@tests" "jest-report.xml")" >> $GITHUB_ENV
+          echo "FAILURES=$(xmlstarlet sel -t -v "testsuites/@failures" "jest-report.xml")" >> $GITHUB_ENV
+          echo "ERRORS=$(xmlstarlet sel -t -v "testsuites/@errors" "jest-report.xml")" >> $GITHUB_ENV
+        fi
       shell: bash
 
     - name: Set file name
-      run: echo "FILENAME=$(echo ${GITHUB_REF#refs/heads/} | tr '/' '-')-test-results.json" >> $GITHUB_ENV
+      run: echo "FILENAME=$(echo ${GITHUB_REF#refs/heads/} | tr '/' '-')-${{ inputs.package }}-test-results.json" >> $GITHUB_ENV
       shell: bash
 
     - name: Prepare Content
